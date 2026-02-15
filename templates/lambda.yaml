@@ -1,0 +1,25 @@
+Resources:
+  CompareFilesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.12
+      MemorySize: 512
+      Timeout: 120
+      Environment:
+        Variables:
+          DDB_TABLE: !Ref DynamoTableName
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref InputBucketName
+        - S3WritePolicy:
+            BucketName: !Ref InputBucketName
+        - DynamoDBReadPolicy:
+            TableName: !Ref DynamoTableName
+      Events:
+        S3Upload:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucketName
+            Events: s3:ObjectCreated:*

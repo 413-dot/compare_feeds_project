@@ -1,0 +1,11 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Compare two files in S3 and write a report to S3
+
+Parameters:
+  InputBucketName:
+    Type: String
+    Description: Existing bucket name for input files. Reports are written to the same bucket.
+  DynamoTableName:
+    Type: String
+    Default: CompareFileSchemaConfig
