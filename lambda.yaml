@@ -1,0 +1,30 @@
+Resources:
+  CompareFilesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.12
+      MemorySize: 512
+      Timeout: 120
+      Environment:
+        Variables:
+          COMPARISON_CONFIG_PATH: /var/task/config/comparison_config.json
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref InputBucketName
+        - S3WritePolicy:
+            BucketName: !Ref InputBucketName
+      Events:
+        S3ObjectCreated:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source:
+                - aws.s3
+              detail-type:
+                - Object Created
+              detail:
+                bucket:
+                  name:
+                    - !Ref InputBucketName
