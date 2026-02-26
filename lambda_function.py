@@ -41,15 +41,9 @@ def lambda_handler(event, context):
             LOG.info("Skipping report file: %s", key)
             return {"statusCode": 200, "body": "ok"}
 
-        # Expect files under feedId/batch_prefix/filename
-        parts = key.split("/")
-        if len(parts) < 2:
-            LOG.warning("Unexpected key format: %s", key)
-            return {"statusCode": 200, "body": "ok"}
-
-        feed_id = parts[0]
-        batch_prefix = "/".join(parts[:-1]) + "/"
-        LOG.info("Derived feed context feedId=%s batchPrefix=%s", feed_id, batch_prefix)
+        file_name = key
+        feed_id = ""
+        LOG.info("Using feed context feedId=%s fileName=%s", feed_id, file_name)
 
         config = get_config(feed_id)
         LOG.info(
@@ -60,21 +54,21 @@ def lambda_handler(event, context):
             len(config.get("report_columns", [])),
         )
 
-        objects = list_data_files(bucket, batch_prefix)
+        objects = list_data_files(bucket, "")
         LOG.info("Discovered objects under prefix count=%d keys=%s", len(objects), [obj.get("Key", "") for obj in objects])
         if len(objects) != 2:
-            LOG.warning("Expected 2 files under %s, found %d", batch_prefix, len(objects))
+            LOG.warning("Expected 2 data files in bucket root, found %d", len(objects))
             return {"statusCode": 200, "body": "ok"}
 
         # Determine old/new by filename: new contains "SB", otherwise old
         sb_objects = [obj for obj in objects if "SB" in obj["Key"]]
         if len(sb_objects) != 1:
-            LOG.warning("Expected exactly one file containing 'SB' under %s, found %d", batch_prefix, len(sb_objects))
+            LOG.warning("Expected exactly one file containing 'SB', found %d", len(sb_objects))
             return {"statusCode": 200, "body": "ok"}
         new_obj = sb_objects[0]
         old_candidates = [obj for obj in objects if obj["Key"] != new_obj["Key"]]
         if len(old_candidates) != 1:
-            LOG.warning("Expected exactly one non-SB file under %s, found %d", batch_prefix, len(old_candidates))
+            LOG.warning("Expected exactly one non-SB file, found %d", len(old_candidates))
             return {"statusCode": 200, "body": "ok"}
         old_obj = old_candidates[0]
         LOG.info("Selected files oldFile=%s newFile=%s", old_obj["Key"], new_obj["Key"])
@@ -120,7 +114,7 @@ def lambda_handler(event, context):
 
         report_csv = report_df.to_csv(index=False)
 
-        report_key = f"reports/{batch_prefix}report.csv"
+        report_key = "reports/report.csv"
         upload_report(bucket, report_key, report_csv)
         LOG.info("Report written to s3://%s/%s reportBytes=%d", bucket, report_key, len(report_csv.encode("utf-8")))
 
