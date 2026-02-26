@@ -15,12 +15,36 @@ def test_normalize_csv_bytes():
     assert df.loc[1, "name"] == "Bob"
 
 
+def test_normalize_tsv_bytes():
+    body = b"id\tname\n1\tAlice\n2\tBob\n"
+    df = normalize_df(body, is_csv=True)
+    assert list(df.columns) == ["id", "name"]
+    assert df.loc[0, "id"] == "1"
+    assert df.loc[1, "name"] == "Bob"
+
+
+def test_normalize_tsv_bytes_auto_detect_without_extension_hint():
+    body = b"id\tname\n1\tAlice\n2\tBob\n"
+    df = normalize_df(body)
+    assert list(df.columns) == ["id", "name"]
+    assert df.loc[0, "id"] == "1"
+    assert df.loc[1, "name"] == "Bob"
+
+
 def test_normalize_json_array_bytes():
     data = [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
     body = json.dumps(data).encode("utf-8")
     df = normalize_df(body, is_csv=False)
     assert list(df.columns) == ["id", "name"]
     assert df.loc[0, "id"] == "1"
+
+
+def test_normalize_json_array_with_bom_bytes():
+    data = [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+    body = ("\ufeff" + json.dumps(data)).encode("utf-8")
+    df = normalize_df(body, is_csv=False)
+    assert list(df.columns) == ["id", "name"]
+    assert df.loc[1, "name"] == "Bob"
 
 
 def test_normalize_json_lines_bytes():
@@ -31,6 +55,21 @@ def test_normalize_json_lines_bytes():
     df = normalize_df(lines.encode("utf-8"), is_csv=False)
     assert list(df.columns) == ["id", "name"]
     assert df.loc[1, "name"] == "Bob"
+
+
+def test_normalize_concatenated_json_objects_bytes():
+    body = b'{"id":1,"name":"Alice"}{"id":2,"name":"Bob"}'
+    df = normalize_df(body, is_csv=False)
+    assert list(df.columns) == ["id", "name"]
+    assert len(df.index) == 2
+    assert df.loc[1, "name"] == "Bob"
+
+
+def test_normalize_json_array_auto_detect_without_hint():
+    body = b'[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]'
+    df = normalize_df(body)
+    assert list(df.columns) == ["id", "name"]
+    assert len(df.index) == 2
 
 
 def test_compare_frames_generates_column_level_diffs():
