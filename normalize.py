@@ -1,11 +1,33 @@
 import io
 import json
+import csv
 
 import pandas as pd
 
 
+def _detect_delimiter(text: str) -> str:
+    sample = text[:4096]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",\t")
+        return dialect.delimiter
+    except csv.Error:
+        # Simple fallback: prefer tab if present and comma is absent.
+        first_line = sample.splitlines()[0] if sample else ""
+        if "\t" in first_line and "," not in first_line:
+            return "\t"
+        return ","
+
+
 def _read_csv_df(body: bytes) -> pd.DataFrame:
-    df = pd.read_csv(io.BytesIO(body), dtype=str, keep_default_na=False, na_filter=False)
+    text = _body_text(body)
+    delimiter = _detect_delimiter(text)
+    df = pd.read_csv(
+        io.StringIO(text),
+        sep=delimiter,
+        dtype=str,
+        keep_default_na=False,
+        na_filter=False,
+    )
     return df
 
 
