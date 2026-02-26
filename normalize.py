@@ -1,11 +1,7 @@
 import io
+import json
 
 import pandas as pd
-
-
-def _detect_json_lines(body: bytes) -> bool:
-    sample = body.lstrip()[:1]
-    return sample != b"["
 
 
 def _read_csv_df(body: bytes) -> pd.DataFrame:
@@ -13,13 +9,43 @@ def _read_csv_df(body: bytes) -> pd.DataFrame:
     return df
 
 
+def _body_text(body: bytes) -> str:
+    # utf-8-sig strips BOM if present.
+    return body.decode("utf-8-sig")
+
+
 def _read_json_df(body: bytes) -> pd.DataFrame:
-    if _detect_json_lines(body):
-        df = pd.read_json(io.BytesIO(body), lines=True, dtype=False)
+    text = _body_text(body)
+    stripped = text.lstrip()
+
+    read_attempts = []
+    if stripped.startswith("["):
+        read_attempts = [False, True]
     else:
-        df = pd.read_json(io.BytesIO(body), dtype=False)
-    df = df.fillna("")
-    return df.astype(str)
+        read_attempts = [True, False]
+
+    last_error = None
+    for lines_mode in read_attempts:
+        try:
+            df = pd.read_json(io.StringIO(text), lines=lines_mode, dtype=False)
+            return df.fillna("").astype(str)
+        except ValueError as exc:
+            last_error = exc
+
+    # Final fallback: python json parser for edge cases.
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            df = pd.DataFrame(parsed)
+        elif isinstance(parsed, dict):
+            df = pd.DataFrame([parsed])
+        else:
+            raise ValueError("JSON root must be object or array")
+        return df.fillna("").astype(str)
+    except Exception as exc:
+        if last_error is not None:
+            raise last_error from exc
+        raise
 
 
 def normalize_df(body: bytes, is_csv: bool) -> pd.DataFrame:
