@@ -1,5 +1,0 @@
-Outputs:
-  InputBucketName:
-    Value: !Ref InputBucketName
-  LambdaName:
-    Value: !Ref CompareFilesFunction
