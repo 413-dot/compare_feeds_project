@@ -14,10 +14,6 @@ LOG = logging.getLogger()
 LOG.setLevel(logging.INFO)
 
 
-def _is_csv_file(key: str) -> bool:
-    return key.lower().endswith(".csv")
-
-
 def lambda_handler(event, context):
     start_ts = time.time()
     request_id = getattr(context, "aws_request_id", "unknown")
@@ -81,8 +77,8 @@ def lambda_handler(event, context):
             LOG.warning("One or both files are empty: %s, %s", old_obj["Key"], new_obj["Key"])
             return {"statusCode": 200, "body": "ok"}
 
-        old_df = normalize_df(old_body, _is_csv_file(old_obj["Key"]))
-        new_df = normalize_df(new_body, _is_csv_file(new_obj["Key"]))
+        old_df = normalize_df(old_body)
+        new_df = normalize_df(new_body)
         LOG.info(
             "Normalized files oldRows=%d oldCols=%d newRows=%d newCols=%d",
             len(old_df.index),
