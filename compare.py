@@ -1,6 +1,9 @@
-from typing import Dict, List
+import logging
+from typing import Dict, List, Optional
 
 import pandas as pd
+
+LOG = logging.getLogger(__name__)
 
 
 def _suffix_non_key(df: pd.DataFrame, keys: List[str], suffix: str) -> pd.DataFrame:
@@ -9,9 +12,9 @@ def _suffix_non_key(df: pd.DataFrame, keys: List[str], suffix: str) -> pd.DataFr
 
 
 def _record_key_for_row(row: pd.Series, composite_key_fields: List[str]) -> str:
-    # RecordKey is the configured composite key in order: key1=value1|key2=value2
-    pairs = [f"{field}={str(row.get(field, ''))}" for field in composite_key_fields]
-    return "|".join(pairs)
+    # Render as tuple-like format used in report examples.
+    values = tuple(str(row.get(field, "")) for field in composite_key_fields)
+    return str(values)
 
 
 def compare_frames(
@@ -19,6 +22,7 @@ def compare_frames(
     new_df: pd.DataFrame,
     ignore_fields: List[str],
     composite_key_fields: List[str],
+    field_display_names: Optional[Dict[str, str]] = None,
 ) -> pd.DataFrame:
     ignore_set = set(ignore_fields or [])
     key_set = set(composite_key_fields or [])
@@ -37,6 +41,13 @@ def compare_frames(
     merged = old_s.merge(new_s, on=composite_key_fields, how="outer", indicator=True)
 
     report_rows: List[Dict[str, str]] = []
+    display_names = field_display_names or {}
+    LOG.info(
+        "compare: starting comparison oldRows=%d newRows=%d compareFields=%d",
+        len(old_df.index),
+        len(new_df.index),
+        len(compare_fields),
+    )
 
     for _, row in merged.iterrows():
         record_key = _record_key_for_row(row, composite_key_fields)
@@ -57,10 +68,11 @@ def compare_frames(
                 old_val = str(row.get(f"{field}__old", ""))
                 new_val = str(row.get(f"{field}__new", ""))
                 if old_val != new_val:
+                    report_name = display_names.get(field, field)
                     row_data = dict(base_row)
                     row_data.update(
                         {
-                            "ColumnName": field,
+                            "ColumnName": report_name,
                             "ExistingValue": old_val,
                             "NewValue": new_val,
                             "ErrorType": "ColumnValDiff",
@@ -94,4 +106,5 @@ def compare_frames(
             )
             report_rows.append(row_data)
 
+    LOG.info("compare: completed comparison reportRows=%d", len(report_rows))
     return pd.DataFrame(report_rows)
