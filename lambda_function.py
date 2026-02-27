@@ -5,7 +5,7 @@ import time
 from urllib.parse import unquote_plus
 
 from compare_files.compare import compare_frames
-from compare_files.config import ConfigError, get_config
+from compare_files.config import ConfigError, get_config_from_bytes
 from compare_files.normalize import normalize_df
 from compare_files.report import select_report_fields
 from compare_files.s3_io import list_data_files, read_object_bytes, upload_report
@@ -14,18 +14,22 @@ LOG = logging.getLogger()
 LOG.setLevel(logging.INFO)
 
 
+def _is_ignored_key(key: str, event_bucket: str, config_bucket: str, config_key: str) -> bool:
+    key_lower = key.lower()
+    if key_lower.endswith("report.csv"):
+        return True
+    return event_bucket == config_bucket and key == config_key
+
+
 def lambda_handler(event, context):
     start_ts = time.time()
     request_id = getattr(context, "aws_request_id", "unknown")
     function_name = getattr(context, "function_name", os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "unknown"))
-    configured_path = os.environ.get("COMPARISON_CONFIG_PATH", "/var/task/config/comparison_config.json")
 
     LOG.info(
-        "Invocation started requestId=%s function=%s configuredConfigPath=%s configExists=%s",
+        "Invocation started requestId=%s function=%s",
         request_id,
         function_name,
-        configured_path,
-        os.path.exists(configured_path),
     )
     LOG.info("Event received: %s", json.dumps(event))
 
@@ -33,36 +37,55 @@ def lambda_handler(event, context):
         bucket = event["detail"]["bucket"]["name"]
         key = unquote_plus(event["detail"]["object"]["key"])
         LOG.info("Parsed eventBridge object bucket=%s key=%s", bucket, key)
-        if key.endswith("report.csv"):
-            LOG.info("Skipping report file: %s", key)
+        config_bucket = os.environ.get("COMPARISON_CONFIG_S3_BUCKET", bucket)
+        config_key = os.environ.get("COMPARISON_CONFIG_S3_KEY")
+        if not config_key:
+            LOG.error("Missing required environment variable COMPARISON_CONFIG_S3_KEY")
+            return {"statusCode": 200, "body": "ok"}
+        LOG.info("Resolved config source bucket=%s key=%s", config_bucket, config_key)
+
+        if _is_ignored_key(key, bucket, config_bucket, config_key):
+            LOG.info("Skipping non-data file: %s", key)
             return {"statusCode": 200, "body": "ok"}
 
         file_name = key
         feed_id = ""
         LOG.info("Using feed context feedId=%s fileName=%s", feed_id, file_name)
 
-        config = get_config(feed_id)
+        config_body = read_object_bytes(config_bucket, config_key)
+        config = get_config_from_bytes(config_body, feed_id)
         LOG.info(
-            "Loaded config feedId=%s compositeKeys=%d ignoreFields=%d reportColumns=%d",
+            "Loaded and derived config from key=%s feedId=%s derivedCompositeKeys=%d derivedIgnoreFields=%d derivedReportColumns=%d",
+            config_key,
             feed_id,
             len(config.get("compositekey", [])),
-            len(config.get("fieldstocompare", [])),
+            len(config.get("excluded_fields", config.get("fieldstocompare", []))),
             len(config.get("report_columns", [])),
         )
 
         objects = list_data_files(bucket, "")
-        LOG.info("Discovered objects under prefix count=%d keys=%s", len(objects), [obj.get("Key", "") for obj in objects])
-        if len(objects) != 2:
-            LOG.warning("Expected 2 data files in bucket root, found %d", len(objects))
+        data_objects = [
+            obj
+            for obj in objects
+            if not _is_ignored_key(obj.get("Key", ""), bucket, config_bucket, config_key)
+        ]
+        LOG.info(
+            "Discovered objects total=%d dataFiles=%d keys=%s",
+            len(objects),
+            len(data_objects),
+            [obj.get("Key", "") for obj in data_objects],
+        )
+        if len(data_objects) != 2:
+            LOG.warning("Expected 2 data files in bucket root, found %d", len(data_objects))
             return {"statusCode": 200, "body": "ok"}
 
         # Determine old/new by filename: new contains "SB", otherwise old
-        sb_objects = [obj for obj in objects if "SB" in obj["Key"]]
+        sb_objects = [obj for obj in data_objects if "SB" in obj["Key"]]
         if len(sb_objects) != 1:
             LOG.warning("Expected exactly one file containing 'SB', found %d", len(sb_objects))
             return {"statusCode": 200, "body": "ok"}
         new_obj = sb_objects[0]
-        old_candidates = [obj for obj in objects if obj["Key"] != new_obj["Key"]]
+        old_candidates = [obj for obj in data_objects if obj["Key"] != new_obj["Key"]]
         if len(old_candidates) != 1:
             LOG.warning("Expected exactly one non-SB file, found %d", len(old_candidates))
             return {"statusCode": 200, "body": "ok"}
@@ -96,15 +119,26 @@ def lambda_handler(event, context):
             LOG.warning("Missing compositekey in config for feedId=%s", feed_id)
             return {"statusCode": 200, "body": "ok"}
 
+        LOG.info("Composite key columns=%s", composite_key)
+        LOG.info("Old dataframe columns=%s", old_df.columns.tolist())
+        LOG.info("New dataframe columns=%s", new_df.columns.tolist())
+
         missing_keys = [k for k in composite_key if k not in old_df.columns or k not in new_df.columns]
         if missing_keys:
             LOG.warning("Composite keys missing in data: %s", ",".join(missing_keys))
             return {"statusCode": 200, "body": "ok"}
 
-        ignore_fields = config.get("fieldstocompare", [])
+        excluded_fields = config.get("excluded_fields", config.get("fieldstocompare", []))
         report_columns = config.get("report_columns", [])
+        field_display_names = config.get("field_display_names", {})
 
-        report_df = compare_frames(old_df, new_df, ignore_fields, composite_key)
+        report_df = compare_frames(
+            old_df,
+            new_df,
+            excluded_fields,
+            composite_key,
+            field_display_names=field_display_names,
+        )
         report_df = select_report_fields(report_df, report_columns)
         LOG.info("Generated report rows=%d cols=%d", len(report_df.index), len(report_df.columns))
 
