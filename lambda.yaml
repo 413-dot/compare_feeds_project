@@ -28,3 +28,10 @@ Resources:
                 bucket:
                   name:
                     - !Ref InputBucketName
+  ComparisonConfigS3Key:
+    Type: String
+    Default: comparison_config.json
+    Description: S3 key of the comparison configuration JSON file.
+  ComparisonConfigS3Bucket:
+    Type: String
+    Description: S3 bucket containing the comparison configuration JSON (use InputBucketName if same bucket).
