@@ -51,13 +51,6 @@ def _looks_like_json(text: str) -> bool:
     return stripped.startswith("{") or stripped.startswith("[")
 
 
-def _to_csv_roundtrip(df: pd.DataFrame) -> pd.DataFrame:
-    # Normalize all parsed inputs through CSV representation for consistent behavior.
-    buf = io.StringIO()
-    df.fillna("").astype(str).to_csv(buf, index=False)
-    return pd.read_csv(io.StringIO(buf.getvalue()), dtype=str, keep_default_na=False, na_filter=False)
-
-
 def _parse_multiple_json_values(text: str):
     decoder = json.JSONDecoder()
     idx = 0
@@ -140,27 +133,27 @@ def normalize_df(body: bytes, is_csv: Optional[bool] = None) -> pd.DataFrame:
 
     if is_csv is True:
         LOG.info("normalize: forced delimited parsing by hint")
-        return _to_csv_roundtrip(_read_csv_df(body)).fillna("")
+        return _read_csv_df(body).fillna("").astype(str)
 
     if is_csv is False:
         LOG.info("normalize: forced JSON parsing by hint")
         try:
-            return _to_csv_roundtrip(_read_json_df(body)).fillna("")
+            return _read_json_df(body).fillna("").astype(str)
         except Exception as exc:
             LOG.warning("normalize: JSON hint failed, falling back to delimited parser error=%s", exc)
-            return _to_csv_roundtrip(_read_csv_df(body)).fillna("")
+            return _read_csv_df(body).fillna("").astype(str)
 
     if preferred_is_json:
         LOG.info("normalize: auto-detect chose JSON-first strategy")
         try:
-            return _to_csv_roundtrip(_read_json_df(body)).fillna("")
+            return _read_json_df(body).fillna("").astype(str)
         except Exception as exc:
             LOG.warning("normalize: JSON-first failed, trying delimited parser error=%s", exc)
-            return _to_csv_roundtrip(_read_csv_df(body)).fillna("")
+            return _read_csv_df(body).fillna("").astype(str)
 
     LOG.info("normalize: auto-detect chose delimited-first strategy")
     try:
-        return _to_csv_roundtrip(_read_csv_df(body)).fillna("")
+        return _read_csv_df(body).fillna("").astype(str)
     except Exception as exc:
         LOG.warning("normalize: delimited-first failed, trying JSON parser error=%s", exc)
-        return _to_csv_roundtrip(_read_json_df(body)).fillna("")
+        return _read_json_df(body).fillna("").astype(str)
